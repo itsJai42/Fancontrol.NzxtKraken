@@ -8,7 +8,7 @@ using System.Xml.Linq;
 using FanControl.Plugins;
 using HidSharp;
 using static FanControl.NzxtKraken.NzxtKrakenDevice;
-
+using System.Threading;
 
 namespace FanControl.NzxtKraken
 {
@@ -30,11 +30,31 @@ namespace FanControl.NzxtKraken
 
         public override void Set(float val)
         {
-            _hidDevice.TryOpen(out HidStream stream);
-            var speed = Math.Min(Math.Max((int)val, _minValue), 100);
-            for (int i = 0; i < 40; i++) _packet[i + 4] = (byte)speed;
-            stream.Write(_packet);
-            stream.Close();
+            if (!Monitor.TryEnter(_hidDevice, 50))
+                return;
+            try
+            {
+                if (!_hidDevice.TryOpen(out HidStream stream) || stream == null)
+                    return;
+                try
+                {
+                    stream.ReadTimeout = 1000;
+                    stream.WriteTimeout = 3000;
+                    var speed = Math.Min(Math.Max((int)val, _minValue), 100);
+                    for (int i = 0; i < 40; i++) _packet[i + 4] = (byte)speed;
+                    stream.Write(_packet);
+                    stream.Read(); // consume device response to avoid poisoning next Update() read
+                }
+                catch (Exception) { }
+                finally
+                {
+                    stream.Close();
+                }
+            }
+            finally
+            {
+                Monitor.Exit(_hidDevice);
+            }
         }
     }
 
@@ -61,11 +81,45 @@ namespace FanControl.NzxtKraken
 
         public override void Update()
         {
-            _hidDevice.TryOpen(out HidStream stream);
-            stream.Write(new byte[] { 0x74, 0x01 });
-            var packet = stream.Read();
-            SetValues(packet);
-            stream.Close();
+            if (!Monitor.TryEnter(_hidDevice, 200))
+                return;
+            try
+            {
+                if (!_hidDevice.TryOpen(out HidStream stream) || stream == null)
+                {
+                    _logger.Log($"{Name}: TryOpen failed (device busy or inaccessible)");
+                    return;
+                }
+                try
+                {
+                    stream.ReadTimeout = 3000;
+                    stream.WriteTimeout = 3000;
+                    stream.Write(new byte[] { 0x74, 0x01 });
+                    byte[] packet = null;
+                    for (int attempt = 0; attempt < 3; attempt++)
+                    {
+                        packet = stream.Read();
+                        if (packet != null && packet.Length > 0 && packet[0] == 0x75)
+                            break;
+                    }
+                    if (packet != null && packet.Length > 15 && packet[0] == 0x75)
+                    {
+                        SetValues(packet);
+                    }
+                }
+                catch (Exception ex)
+                {
+                    _logger.Log($"{Name}: Update error: {ex.Message}");
+                }
+                finally
+                {
+                    stream.Close();
+                }
+            }
+            finally
+            {
+                Monitor.Exit(_hidDevice);
+            }
         }
 
         internal virtual void SetValues(byte[] packet)
@@ -140,6 +194,38 @@ namespace FanControl.NzxtKraken
         public static new bool SupportsDevice(HidDevice hidDevice)
         {
             return Array.Exists(new int[] { 0x300E }, i => i == hidDevice.ProductID);
+        }
+    }
+
+    internal class NzxtKrakenEliteV2 : NzxtKrakenZ3
+    {
+        internal override string Name => "Kraken Elite V2";
+        internal override byte[] PumpControlHeader => new byte[] { 0x1, 0x1, 0x0 };
+
+        internal override byte[] FanControlHeader => new byte[] { 0x2, 0x1, 0x1 };
+
+        public NzxtKrakenEliteV2(HidDevice hidDevice, IPluginLogger pluginLogger, IPluginSensorsContainer container) : base(hidDevice, pluginLogger, container)
+        { }
+
+        public static new bool SupportsDevice(HidDevice hidDevice)
+        {
+            return Array.Exists(new int[] { 0x3012 }, i => i == hidDevice.ProductID);
+        }
+    }
+
+    internal class NzxtKraken2024Plus : NzxtKrakenZ3
+    {
+        internal override string Name => "Kraken 2024 Plus";
+        internal override byte[] PumpControlHeader => new byte[] { 0x1, 0x1, 0x0 };
+
+        internal override byte[] FanControlHeader => new byte[] { 0x2, 0x1, 0x1 };
+
+        public NzxtKraken2024Plus(HidDevice hidDevice, IPluginLogger pluginLogger, IPluginSensorsContainer container) : base(hidDevice, pluginLogger, container)
+        { }
+
+        public static new bool SupportsDevice(HidDevice hidDevice)
+        {
+            return Array.Exists(new int[] { 0x3014 }, i => i == hidDevice.ProductID);
         }
     }
 }

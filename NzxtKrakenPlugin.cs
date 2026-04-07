@@ -26,6 +26,7 @@ namespace FanControl.NzxtKraken
 
             foreach (var hidDevice in hidDevices)
             {
+                logger.Log($"HID Device: PID=0x{hidDevice.ProductID:X4}, Path={hidDevice.DevicePath}, MaxIn={hidDevice.GetMaxInputReportLength()}, MaxOut={hidDevice.GetMaxOutputReportLength()}");
                 if(NzxtKrakenX3.SupportsDevice(hidDevice))
                 {
                     devices.Add(new NzxtKrakenX3(hidDevice, logger, _container));
@@ -41,6 +42,12 @@ namespace FanControl.NzxtKraken
                 } else if (NzxtKraken2023.SupportsDevice(hidDevice))
                 {
                     devices.Add(new NzxtKraken2023(hidDevice, logger, _container));
+                } else if (NzxtKrakenEliteV2.SupportsDevice(hidDevice))
+                {
+                    devices.Add(new NzxtKrakenEliteV2(hidDevice, logger, _container));
+                } else if (NzxtKraken2024Plus.SupportsDevice(hidDevice))
+                {
+                    devices.Add(new NzxtKraken2024Plus(hidDevice, logger, _container));
                 }
             }
         }
