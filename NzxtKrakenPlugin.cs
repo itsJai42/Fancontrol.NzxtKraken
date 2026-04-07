@@ -26,7 +26,6 @@ namespace FanControl.NzxtKraken
 
             foreach (var hidDevice in hidDevices)
             {
-                logger.Log($"HID Device: PID=0x{hidDevice.ProductID:X4}, Path={hidDevice.DevicePath}, MaxIn={hidDevice.GetMaxInputReportLength()}, MaxOut={hidDevice.GetMaxOutputReportLength()}");
                 if(NzxtKrakenX3.SupportsDevice(hidDevice))
                 {
                     devices.Add(new NzxtKrakenX3(hidDevice, logger, _container));
